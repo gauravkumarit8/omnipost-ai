@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Sparkles, Copy, RotateCcw, ArrowRight, LayoutPanelLeft, LogOut } from 'lucide-react';
 import { Platform, Tone } from '../types';
 import { createClient } from '../lib/supabase';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function OmniPostPage() {
   const [input, setInput] = useState('');
@@ -28,13 +29,56 @@ export default function OmniPostPage() {
     window.location.reload(); // Reload to trigger middleware redirect to /login
   };
 
-  const handleRepurpose = async () => {
+    // Add this inside your OmniPostPage function, before the handleRepurpose function
+  const searchParams = useSearchParams();
+  const projectId = searchParams.get('projectId');
+
+  useEffect(() => {
+    if (projectId) {
+      loadProject(projectId);
+    }
+  }, [projectId]);
+
+  async function loadProject(id: string) {
+    setIsLoading(true);
+    try {
+      // 1. Fetch the master content
+      const { data: project } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (project) {
+        setInput(project.master_content);
+        
+        // 2. Fetch the repurposed results
+        const { data: contents } = await supabase
+          .from('repurposed_content')
+          .select('*')
+          .eq('project_id', id);
+
+        if (contents) {
+          const restoredResults: Record<string, string> = {};
+          contents.forEach(item => {
+            restoredResults[item.platform] = item.content;
+          });
+          setResults(restoredResults);
+        }
+      }
+    } catch (error) {
+      console.error('Error restoring project:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+    const handleRepurpose = async () => {
     if (!input) return alert('Please enter content!');
     setIsLoading(true);
     setResults({});
 
     try {
-      // 1. Get the current session and access token from Supabase
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
 
@@ -43,15 +87,39 @@ export default function OmniPostPage() {
         return;
       }
 
+      // STEP 1: Create the project first and get the projectId
+      setLoadingStep('Initializing project...');
+      const projectRes = await fetch('/api/project/create', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({ content: input }),
+      });
+      
+      const projectData = await projectRes.json();
+      if (!projectData.projectId) {
+        throw new Error(projectData.error || 'Failed to create project');
+      }
+      
+      const projectId = projectData.projectId;
+
+      // STEP 2: Loop through platforms using the same projectId
       for (const p of platforms) {
         setLoadingStep(`Generating ${p.label}...`);
         const res = await fetch('/api/repurpose', {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}` // <--- Pass the token here
+            'Authorization': `Bearer ${token}` 
           },
-          body: JSON.stringify({ content: input, platform: p.id, tone }),
+          body: JSON.stringify({ 
+            content: input, 
+            platform: p.id, 
+            tone, 
+            projectId: projectId // Pass the project ID here
+          }),
         });
         
         const data = await res.json();
@@ -61,8 +129,8 @@ export default function OmniPostPage() {
           setResults(prev => ({ ...prev, [p.id]: `Error: ${data.error || 'Unknown error'}` }));
         }
       }
-    } catch (error) {
-      alert('Something went wrong!');
+    } catch (error: any) {
+      alert(error.message || 'Something went wrong!');
     } finally {
       setIsLoading(false);
     }
@@ -78,13 +146,24 @@ export default function OmniPostPage() {
           </div>
           <span className="text-xl font-bold tracking-tight">OmniPost <span className="text-brand-600">AI</span></span>
         </div>
-        <button 
-          onClick={handleLogout}
-          className="flex items-center gap-2 bg-slate-100 text-slate-700 px-4 py-2 rounded-full text-sm font-semibold hover:bg-slate-200 transition"
-        >
-          <LogOut className="w-4 h-4" />
-          Logout
-        </button>
+        
+        <div className="flex items-center gap-4">
+          {/* New History Link */}
+          <button 
+            onClick={() => window.location.href = '/history'}
+            className="text-sm font-semibold text-slate-600 hover:text-brand-600 transition mr-4"
+          >
+            My Library
+          </button>
+          
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-2 bg-slate-100 text-slate-700 px-4 py-2 rounded-full text-sm font-semibold hover:bg-slate-200 transition"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </button>
+        </div>
       </nav>
 
       <main className="max-w-7xl mx-auto px-6 py-12">
