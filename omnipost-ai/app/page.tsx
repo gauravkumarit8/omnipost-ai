@@ -148,14 +148,22 @@ export default function OmniPostPage() {
         </div>
         
         <div className="flex items-center gap-4">
-          {/* New History Link */}
+          {/* History Link */}
           <button 
             onClick={() => window.location.href = '/history'}
-            className="text-sm font-semibold text-slate-600 hover:text-brand-600 transition mr-4"
+            className="text-sm font-semibold text-slate-600 hover:text-brand-600 transition mr-2"
           >
             My Library
           </button>
-          
+
+          {/* Settings Link */}
+          <button 
+            onClick={() => window.location.href = '/settings'}
+            className="text-sm font-semibold text-slate-600 hover:text-brand-600 transition mr-4"
+          >
+            Settings
+          </button>
+
           <button 
             onClick={handleLogout}
             className="flex items-center gap-2 bg-slate-100 text-slate-700 px-4 py-2 rounded-full text-sm font-semibold hover:bg-slate-200 transition"
