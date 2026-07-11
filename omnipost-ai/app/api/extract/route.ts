@@ -6,7 +6,7 @@ function extractReadableText(html: string): string {
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+    .replace(/<footer>[\s\S]*?<\/footer>/gi, '')
     .replace(/<header[\s\S]*?<\/header>/gi, '')
     .replace(/<aside[\s\S]*?<\/aside>/gi, '')
     .replace(/<!--[\s\S]*?-->/g, '')
@@ -45,11 +45,10 @@ function extractReadableText(html: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  // Cap at ~4000 chars — enough for Claude, avoids token waste
   return text.slice(0, 4000);
 }
 
-// ── Claude draft generation ───────────────────────────────────────────────
+// ── Draft generation ───────────────────────────────────────────────────────
 export interface ExtractedDrafts {
   summary: string;
   linkedin: string;
@@ -64,8 +63,7 @@ async function generateDrafts(
   source: string,
   url: string,
 ): Promise<ExtractedDrafts> {
-
-  const system = `You are an expert content strategist and ghostwriter for C-level executives. You read full articles and transform them into platform-ready posts.
+  const systemPrompt = `You are an expert content strategist and ghostwriter for C-level executives. You read full articles and transform them into platform-ready posts.
 
 WRITING RULES (apply everywhere):
 - Never use: "game-changer", "in today's fast-paced world", "paradigm shift", "unlock the power", "dive deep", "revolutionize", "disrupt", "leverage" as a verb
@@ -88,35 +86,34 @@ Respond with ONLY valid JSON — no markdown code fences, no preamble:
   "medium": "full markdown medium article"
 }`;
 
-  const user = `Article title: ${title}
-Source: ${source}
-URL: ${url}
+  const userPrompt = `Article title: ${title}\nSource: ${source}\nURL: ${url}\n\nFull article text:\n${articleText}\n\nWrite the JSON output now. Be specific to this article's actual content and findings.`;
 
-Full article text:
-${articleText}
-
-Write the JSON output now. Be specific to this article's actual content and findings.`;
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
+    },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: 'llama-3.3-70b-versatile',
       max_tokens: 2500,
-      system,
-      messages: [{ role: 'user', content: user }],
+      temperature: 0.7,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      response_format: { type: "json_object" }
     }),
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as any)?.error?.message || `Claude API error ${res.status}`);
+    throw new Error((err as any)?.error?.message || `Groq API error ${res.status}`);
   }
 
   const data = await res.json();
-  const raw: string = data?.content?.[0]?.text || '';
+  const raw = data.choices?.[0]?.message?.content || '';
 
-  // Strip markdown fences if Claude added them
   const cleaned = raw
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
@@ -141,7 +138,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No valid article URL provided' }, { status: 400 });
     }
 
-    // Step 1 — Fetch article HTML server-side
     const controller = new AbortController();
     const fetchTimeout = setTimeout(() => controller.abort(), 15000);
 
@@ -167,7 +163,6 @@ export async function POST(req: Request) {
       throw new Error(`Could not fetch article: ${fetchErr.message}`);
     }
 
-    // Step 2 — Extract clean readable text
     const articleText = extractReadableText(html);
     if (articleText.length < 80) {
       throw new Error(
@@ -175,7 +170,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Step 3 — Generate drafts with Claude
     const drafts = await generateDrafts(articleText, title, source, url);
 
     return NextResponse.json({
