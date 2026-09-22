@@ -2,35 +2,43 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '../../lib/supabase';
-import { Sparkles, Save, ArrowLeft, User } from 'lucide-react';
+import { Sparkles, Save, ArrowLeft, User, Linkedin, Twitter, Instagram, Link as LinkIcon, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export default function SettingsPage() {
   const [brandVoice, setBrandVoice] = useState('');
+  const [connections, setConnections] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const supabase = createClient();
   const router = useRouter();
 
   useEffect(() => {
-    fetchProfile();
+    fetchUserData();
   }, []);
 
-  async function fetchProfile() {
+  async function fetchUserData() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
+      // 1. Fetch Brand Voice
+      const { data: profile } = await supabase
         .from('profiles')
         .select('brand_voice')
         .eq('id', user.id)
         .single();
+      setBrandVoice(profile?.brand_voice || '');
 
-      if (error) throw error;
-      setBrandVoice(data?.brand_voice || '');
+      // 2. Fetch Connected Accounts
+      const { data: connData } = await supabase
+        .from('user_connections')
+        .select('platform')
+        .eq('user_id', user.id);
+      
+      setConnections(connData?.map(c => c.platform) || []);
     } catch (error) {
-      console.error('Error fetching profile:', error);
+      console.error('Error fetching data:', error);
     } finally {
       setIsLoading(false);
     }
@@ -58,6 +66,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Navbar */}
       <nav className="border-b bg-white px-6 py-4 flex justify-between items-center sticky top-0 z-50">
         <div className="flex items-center gap-4">
           <button onClick={() => router.push('/')} className="p-2 hover:bg-slate-100 rounded-full transition">
@@ -75,8 +84,8 @@ export default function SettingsPage() {
 
       <main className="max-w-3xl mx-auto px-6 py-12">
         <div className="mb-12 text-center">
-          <h1 className="text-4xl font-extrabold mb-4">Personalize your <span className="text-brand-600">AI Voice</span></h1>
-          <p className="text-slate-600">Tell the AI exactly how you sound. The more detail you provide, the more authentic your content will be.</p>
+          <h1 className="text-4xl font-extrabold mb-4">Account <span className="text-brand-600">Settings</span></h1>
+          <p className="text-slate-600">Manage your identity and connect your social channels for direct publishing.</p>
         </div>
 
         {isLoading ? (
@@ -84,37 +93,79 @@ export default function SettingsPage() {
             <div className="w-10 h-10 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="bg-white p-8 rounded-3xl border shadow-sm space-y-8">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-                <User className="w-5 h-5" />
+          <div className="space-y-8">
+            
+            {/* --- SECTION 1: SOCIAL CONNECTIONS --- */}
+            <div className="bg-white p-8 rounded-3xl border shadow-sm space-y-6">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-green-50 text-green-600 rounded-lg">
+                  <LinkIcon className="w-5 h-5" />
+                </div>
+                <h2 className="text-xl font-bold">Connected Accounts</h2>
               </div>
-              <h2 className="text-xl font-bold">Your Brand Identity</h2>
+              <p className="text-sm text-slate-500 mb-6">Link your accounts to publish content directly from OmniPost AI without copy-pasting.</p>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  { id: 'linkedin', label: 'LinkedIn', icon: <Linkedin />, color: 'bg-blue-600' },
+                  { id: 'twitter', label: 'X (Twitter)', icon: <Twitter />, color: 'bg-black' },
+                  { id: 'instagram', label: 'Instagram', icon: <Instagram />, color: 'bg-pink-600' },
+                ].map((platform) => (
+                  <div key={platform.id} className="flex items-center justify-between p-4 border rounded-2xl hover:border-brand-500 transition bg-slate-50/50">
+                    <div className="flex items-center gap-3">
+                      <div className={`${platform.color} p-2 rounded-lg text-white`}>
+                        {platform.icon}
+                      </div>
+                      <span className="font-semibold text-sm">{platform.label}</span>
+                    </div>
+                    {connections.includes(platform.id) ? (
+                      <CheckCircle className="w-5 h-5 text-green-500" />
+                    ) : (
+                      <button 
+                        onClick={() => window.location.href = `/api/auth/${platform.id}`}
+                        className="text-xs font-bold text-brand-600 hover:underline"
+                      >
+                        Connect
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div className="space-y-4">
-              <label className="block text-sm font-semibold text-slate-700">
-                Describe your writing style
-              </label>
-              <textarea 
-                className="w-full p-4 border rounded-2xl h-64 focus:ring-2 focus:ring-brand-500 outline-none transition leading-relaxed"
-                placeholder="Example: I am a tech entrepreneur who speaks directly and avoids corporate jargon. I use a lot of analogies, keep my sentences short, and I'm not afraid to be slightly provocative or contrarian."
-                value={brandVoice}
-                onChange={(e) => setBrandVoice(e.target.value)}
-              />
-              <p className="text-xs text-slate-400 italic">
-                Tip: Mention your target audience, common words you use, and things you absolutely avoid.
-              </p>
-            </div>
+            {/* --- SECTION 2: BRAND VOICE --- */}
+            <div className="bg-white p-8 rounded-3xl border shadow-sm space-y-8">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                  <User className="w-5 h-5" />
+                </div>
+                <h2 className="text-xl font-bold">Your Brand Identity</h2>
+              </div>
 
-            <button 
-              onClick={saveVoice}
-              disabled={isSaving}
-              className="w-full bg-brand-600 text-white font-bold py-4 rounded-xl hover:bg-brand-700 transition flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
-            >
-              {isSaving ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save className="w-5 h-5" />}
-              {isSaving ? 'Saving...' : 'Save Brand Voice'}
-            </button>
+              <div className="space-y-4">
+                <label className="block text-sm font-semibold text-slate-700">
+                  Describe your writing style
+                </label>
+                <textarea 
+                  className="w-full p-4 border rounded-2xl h-64 focus:ring-2 focus:ring-brand-500 outline-none transition leading-relaxed"
+                  placeholder="Example: I am a tech entrepreneur who speaks directly and avoids corporate jargon..."
+                  value={brandVoice}
+                  onChange={(e) => setBrandVoice(e.target.value)}
+                />
+                <p className="text-xs text-slate-400 italic">
+                  Tip: Mention your target audience and things you absolutely avoid.
+                </p>
+              </div>
+
+              <button 
+                onClick={saveVoice}
+                disabled={isSaving}
+                className="w-full bg-brand-600 text-white font-bold py-4 rounded-xl hover:bg-brand-700 transition flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
+              >
+                {isSaving ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save className="w-5 h-5" />}
+                {isSaving ? 'Saving...' : 'Save Brand Voice'}
+              </button>
+            </div>
           </div>
         )}
       </main>
